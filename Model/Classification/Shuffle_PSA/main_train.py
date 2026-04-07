@@ -37,6 +37,45 @@ def print_plot(train_plot, vaild_plot, train_text, vaild_text, ac, name, title):
     plt.savefig(name)
 
 
+def move_optimizer_state_to_device(optimizer, device):
+    for state in optimizer.state.values():
+        for key, value in state.items():
+            if torch.is_tensor(value):
+                state[key] = value.to(device)
+
+
+def save_resume_checkpoint(checkpoint_path, net, optimizer, scheduler, epoch, best_acc,
+                           best_epoch, best_report, history, args):
+    checkpoint = {
+        "epoch": epoch,
+        "model_state": net.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "scheduler_state": scheduler.state_dict(),
+        "best_acc": best_acc,
+        "best_epoch": best_epoch,
+        "best_report": best_report,
+        "history": history,
+        "args": vars(args),
+    }
+    torch.save(checkpoint, checkpoint_path)
+
+
+def load_resume_checkpoint(checkpoint_path, net, optimizer, scheduler, device):
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    required_keys = {"epoch", "model_state", "optimizer_state", "scheduler_state"}
+    missing_keys = required_keys.difference(checkpoint)
+    if missing_keys:
+        raise ValueError(
+            "resume checkpoint is incomplete, missing keys: {}".format(sorted(missing_keys))
+        )
+
+    net.load_state_dict(checkpoint["model_state"], strict=True)
+    optimizer.load_state_dict(checkpoint["optimizer_state"])
+    scheduler.load_state_dict(checkpoint["scheduler_state"])
+    move_optimizer_state_to_device(optimizer, device)
+    return checkpoint
+
+
 def train_model(net, train_loader, device, loss_function, train_num, optimizer):
     net.train()
     train_acc = 0.0
@@ -112,6 +151,9 @@ def main(args):
     save_path = args.save_path + '/lr_' + str(args.lr)
     if os.path.exists(save_path) is False:
         os.makedirs(save_path)
+    latest_checkpoint_path = os.path.join(save_path, "latest_checkpoint.pth")
+    best_checkpoint_path = os.path.join(save_path, "best_checkpoint.pth")
+    metric_file_path = os.path.join(save_path, "train_val_metrics.txt")
     print("using {} device.".format(device))
 
     data_transform = {
@@ -149,19 +191,6 @@ def main(args):
     # create model
     net = ShuffleNetV2_PSA(stages_repeats=[4, 8, 1], stages_out_channels=[24, 116, 232, 464, 128],
                            num_classes=args.num_classes)
-
-    # load pretrain weights
-    model_weight_path = args.weights
-    assert os.path.exists(model_weight_path), "file {} dose not exist.".format(model_weight_path)
-    pre_weights = torch.load(model_weight_path, map_location='cpu')
-    pre_dict = {k: v for k, v in pre_weights.items() if
-                k in net.state_dict() and net.state_dict()[k].numel() == v.numel()}
-    #
-    # pre_dict = {k: v for k, v in pre_weights.items() if net.state_dict()[k].numel() == v.numel()}
-    missing_keys, unexpected_keys = net.load_state_dict(pre_dict, strict=False)
-    # print("Missing keys:", missing_keys)
-    # print("Unexpected keys:", unexpected_keys)
-
     net.to(device)
 
     input = torch.randn(1, 3, 224, 224).to(device)
@@ -187,52 +216,115 @@ def main(args):
     lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf  # cosine
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
 
+    start_epoch = 0
     best_acc = 0.0
+    best_epoch = 0
+    best_report = ""
+    plt_train_loss = []
+    plt_train_ac = []
+    plt_vaild_loss = []
+    plt_vaild_ac = []
 
-    # 写入训练和验证指标到txt文件
-    with open(save_path + '/train_val_metrics.txt', 'w') as file:
-        file.write(f"lr:{args.lr}\nTime\tEpoch\tTrain_Loss\tTrain_Acc\tVal_Loss\tVal_Acc\tVal_Pre\tVal_Rec\tVal_F1\n")
+    if args.resume:
+        resume_path = args.resume
+        assert os.path.exists(resume_path), "resume checkpoint {} does not exist.".format(resume_path)
+        checkpoint = load_resume_checkpoint(resume_path, net, optimizer, scheduler, device)
+        start_epoch = checkpoint["epoch"] + 1
+        best_acc = checkpoint.get("best_acc", 0.0)
+        best_epoch = checkpoint.get("best_epoch", 0)
+        best_report = checkpoint.get("best_report", "")
+        history = checkpoint.get("history", {})
+        plt_train_loss = history.get("train_loss", [])
+        plt_train_ac = history.get("train_acc", [])
+        plt_vaild_loss = history.get("val_loss", [])
+        plt_vaild_ac = history.get("val_acc", [])
+        print("resuming training from epoch {} using checkpoint {}".format(start_epoch + 1, resume_path))
+    else:
+        model_weight_path = args.weights
+        assert os.path.exists(model_weight_path), "file {} dose not exist.".format(model_weight_path)
+        pre_weights = torch.load(model_weight_path, map_location='cpu')
+        pre_dict = {k: v for k, v in pre_weights.items() if
+                    k in net.state_dict() and net.state_dict()[k].numel() == v.numel()}
+        missing_keys, unexpected_keys = net.load_state_dict(pre_dict, strict=False)
+        print("loaded warm start weights from {}".format(model_weight_path))
 
-        for epoch in range(epochs):
+    file_mode = 'a' if start_epoch > 0 and os.path.exists(metric_file_path) else 'w'
+    with open(metric_file_path, file_mode) as file:
+        if file_mode == 'w':
+            file.write(f"lr:{args.lr}\nTime\tEpoch\tTrain_Loss\tTrain_Acc\tVal_Loss\tVal_Acc\tVal_Pre\tVal_Rec\tVal_F1\n")
+
+        for epoch in range(start_epoch, epochs):
             train_loss, train_acc = train_model(net, train_loader, device, loss_function, train_num, optimizer)
             scheduler.step()
 
             val_loss, val_acc, val_pre, val_rec, val_f1, val_report = eval_model(net, validate_loader, device,
-                                                                                 loss_function, val_num,
-                                                                                 args.class_names)
+                                                                                  loss_function, val_num,
+                                                                                  args.class_names)
             print('train epoch[{}/{}]\tloss:{:.5f}\ttrain_acc: {:.5f}\tval_acc:{:.5f}'.format(epoch + 1, epochs,
-                                                                                              train_loss, train_acc,
-                                                                                              val_acc))
+                                                                                               train_loss, train_acc,
+                                                                                               val_acc))
 
             if val_acc >= best_acc:
                 best_acc = val_acc
                 best_report = val_report
                 best_epoch = epoch + 1
                 torch.save(net.state_dict(), save_path + '/best.pth')
-            
-                # 在最后一轮保存模型权重
-            if epoch == epochs - 1:
-                torch.save(net.state_dict(), save_path + '/last_epoch.pth')
 
             time1 = "%s" % datetime.now()
-            # 写入训练和验证指标到txt文件
             file.write(f"{time1}\t{epoch + 1}\t{train_loss:.5f}\t{train_acc:.5f}\t{val_loss:.5f}\t{val_acc:.5f}"
                        f"\t{val_pre:.5f}\t{val_rec:.5f}\t{val_f1:.5f}\n")
             file.flush()
 
             plt_train_ac.append(train_acc)
             plt_train_loss.append(train_loss)
-
             plt_vaild_ac.append(val_acc)
             plt_vaild_loss.append(val_loss)
+
+            history = {
+                "train_loss": plt_train_loss,
+                "train_acc": plt_train_ac,
+                "val_loss": plt_vaild_loss,
+                "val_acc": plt_vaild_ac,
+            }
+            save_resume_checkpoint(
+                latest_checkpoint_path,
+                net,
+                optimizer,
+                scheduler,
+                epoch,
+                best_acc,
+                best_epoch,
+                best_report,
+                history,
+                args,
+            )
+
+            if val_acc >= best_acc:
+                save_resume_checkpoint(
+                    best_checkpoint_path,
+                    net,
+                    optimizer,
+                    scheduler,
+                    epoch,
+                    best_acc,
+                    best_epoch,
+                    best_report,
+                    history,
+                    args,
+                )
+
             print_plot(plt_train_loss, plt_vaild_loss, "train_loss", "vaild_loss", False, save_path + "/loss.png",
                        "train_loss and val_loss")
             print_plot(plt_train_ac, plt_vaild_ac, "train_acc", "vaild_acc", True, save_path + "/acc.png",
                        "train_acc and val_acc")
+
+            if epoch == epochs - 1:
+                torch.save(net.state_dict(), save_path + '/last_epoch.pth')
+
     print('Best epoch: {}'.format(best_epoch))
     print('Best val_acc: {:.5f}'.format(best_acc))
-    print('Best report: '.format(best_report))
-    with open(save_path + '/train_val_metrics.txt', 'a') as file:
+    print('Best report: {}'.format(best_report))
+    with open(metric_file_path, 'a') as file:
         file.write(f"Best epoch: {best_epoch}\tBest val_acc: {best_acc:.5f}\nBest report: {best_report}\n")
     print('Finished Training!')
 
@@ -243,7 +335,7 @@ if __name__ == '__main__':
     # 类别数量
     parser.add_argument('--num_classes', type=int, default=2)
     # 设置训练回合为4000（数据集训练4000次）
-    parser.add_argument('--epochs', type=int, default=800)
+    parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--batch_size', type=int, default=80)
     parser.add_argument('--workers', type=int, default=16)
 
@@ -253,11 +345,13 @@ if __name__ == '__main__':
     parser.add_argument('--loss_func', type=str, default="CrossEntropyLoss")
 
     # 数据集所在根目录
-    parser.add_argument('--data_path', type=str, default="../DataSet_Njust_binary_01")
+    parser.add_argument('--data_path', type=str, default="../DataSet/DataSet_Njust_binary_01")
 
     # 预训练权重路径
     parser.add_argument('--weights', type=str, default='./shufflenetv2_x1.pth',
                         help='initial weights path')
+    parser.add_argument('--resume', type=str, default='',
+                        help='path to a full training checkpoint for true resume')
     # parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
     # 权重和训练记录所保存的目录，可以自定义路径
     parser.add_argument('--save_path', type=str, default="./Our/Binary/Train_01/")
