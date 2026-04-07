@@ -1,0 +1,13 @@
+name: lzn_camera
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - opencv
+  - pip
+  - pip:
+      - Flask==2.2.5
+      - gunicorn==20.1.0
+
+      

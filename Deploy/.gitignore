@@ -1,0 +1,52 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Node / frontend
+node_modules/
+dist/
+
+# Logs and local runtime files
+*.log
+nohup.out
+monitor.db
+
+# Backup files
+*.bak
+*.bk
+
+# Model weights and packaged binaries
+*.pth
+*.pt
+*.onnx
+*.engine
+flame-client-amd64.tar
+
+# Project runtime outputs
+cache/
+captures/
+CameraFeed_flask/captures/
+Classification_flask/recordings/
+ObjectDetection_flask/original.jpg
+ObjectDetection_flask/roi.jpg
+
+# Local datasets
+Classification/Datasets/
+ObjectDetection/Dataset/
+*.tar

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火灾目标检测系统</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .upload-section, .result-section {
+            flex: 1;
+            min-width: 500px;
+        }
+        .image-container {
+            border: 2px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .image-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 25px 0;
+            width: 100%; /* 新增 */
+        }
+
+        /* 修改按钮基础样式 */
+        button {
+            padding: 12px 0; /* 调整垂直间距 */
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            flex: 1; /* 保持等宽分配 */
+            min-width: 90px; /* 新增最小宽度 */
+            white-space: nowrap; /* 防止文字换行 */
+        }
+
+        /* 新增时间框样式 */
+        #processing-time {
+            padding: 12px 0; /* 与按钮垂直间距一致 */
+            border: 2px solid #ddd;
+            margin: 25px 0 0; /* 上边距与按钮组一致 */
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%; /* 新增 */
+            box-sizing: border-box; /* 包含边框宽度 */
+        }
+        .upload-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .clear-btn {
+            background-color: #f44336;
+            color: white;
+        }
+        .submit-btn {
+            background-color: #2196F3;
+            color: white;
+        }
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 10px 0;
+        }
+        #upload-input {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- 左侧上传区域 -->
+    <div class="upload-section">
+        <div class="section-title">已上传图片</div>
+        <div class="image-container">
+            <img id="uploaded-image" src="">
+        </div>
+        <div class="button-group">
+            <button class="clear-btn" onclick="clearImage()">清除图片</button>
+            <button class="upload-btn" onclick="document.getElementById('upload-input').click()">选择图片</button>
+            <button class="submit-btn" onclick="submitImage()">提交检测</button>
+        </div>
+    </div>
+
+    <!-- 右侧结果区域 -->
+    <div class="result-section">
+        <div class="section-title">检测结果</div>
+        <div class="image-container">
+            <img id="result-image" src="">
+        </div>
+        <div id="processing-time">处理时间：-- 毫秒</div>
+    </div>
+</div>
+
+<input type="file" id="upload-input" accept="image/*">
+
+<script>
+    // 显示上传的图片
+    document.getElementById('upload-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            document.getElementById('uploaded-image').src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+    });
+
+    // 清除上传的图片
+    function clearImage() {
+        document.getElementById('upload-input').value = '';
+        document.getElementById('uploaded-image').src = '';
+    }
+
+    // 提交图片进行检测
+    function submitImage() {
+        const fileInput = document.getElementById('upload-input');
+        if (!fileInput.files[0]) {
+            alert('请先选择图片');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('image', fileInput.files[0]);
+
+        fetch('/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.image) {
+                document.getElementById('result-image').src = `data:image/png;base64,${data.image}`;
+            }
+            if (data.time) {
+                document.getElementById('processing-time').textContent = `处理时间：${data.time} 毫秒`;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('检测失败，请重试');
+        });
+    }
+</script>
+</body>
+</html>

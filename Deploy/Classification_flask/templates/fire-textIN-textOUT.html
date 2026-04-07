@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>火灾检测-路径输入预测</title>
+    <meta charset="UTF-8">
+    <script src="{{url_for('static', filename='js/jquery.min.js')}}"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+        }
+        .input-box {
+            margin-bottom: 20px;
+        }
+        .input-box input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            background: #4CAF50;
+            color: white;
+        }
+        .btn:disabled {
+            background: #BDBDBD;
+            cursor: not-allowed;
+        }
+        .result-box {
+            margin-top: 20px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .result-header {
+            padding: 15px;
+            background: #2196F3;
+            color: white;
+            border-radius: 6px 6px 0 0;
+            font-weight: bold;
+        }
+        #inferenceTime {
+            padding: 10px 15px;
+            color: #666;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+            background: #f8f8f8;
+        }
+        #resultContent {
+            padding: 15px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .result-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .loader {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+<div style="max-width:800px;margin:50px auto;padding:20px;">
+    <!-- 输入框和预测按钮 -->
+    <div class="input-box">
+        <label for="imagePath">输入图片相对路径（original 或者 roi ）</label>
+        <input type="text" id="imagePath" placeholder="请输入图片路径">
+        <button id="predictBtn" class="btn" onclick="predict()">开始预测</button>
+    </div>
+
+    <!-- 结果展示区域 -->
+    <div id="resultBox" class="result-box">
+        <div class="result-header">预测结果</div>
+        <div id="inferenceTime"></div>
+        <pre id="resultContent"></pre>
+    </div>
+</div>
+
+<script>
+function predict() {
+    const path = document.getElementById('imagePath').value.trim();
+    if (!path) return alert("请输入图片路径！");
+
+    const btn = document.getElementById('predictBtn');
+    btn.innerHTML = '<div class="loader"></div> 预测中...';
+    btn.disabled = true;
+
+    $.ajax({
+        url: '/predict_path',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ path: path }),
+        success: (res) => {
+            displayResult(res.result, res.inference_time);
+        },
+        error: () => {
+            displayResult(['预测请求失败'], 0);
+        },
+        complete: () => {
+            btn.innerHTML = '开始预测';
+            btn.disabled = false;
+        }
+    });
+}
+
+function displayResult(results, inferenceTime) {
+    const resultContent = document.getElementById('resultContent');
+    const timeElement = document.getElementById('inferenceTime');
+    
+    timeElement.innerHTML = `推理时间：${inferenceTime} 毫秒`;
+    resultContent.innerHTML = results.map(item => 
+        `<div class="result-item">${item}</div>`
+    ).join('');
+}
+</script>
+</body>
+</html>

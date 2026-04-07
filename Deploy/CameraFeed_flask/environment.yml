@@ -1,0 +1,11 @@
+name: lzn_camera
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - Flask==2.2.5
+      - gunicorn==20.1.0
+
+      

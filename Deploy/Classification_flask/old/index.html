@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>火灾检测 - 双模式预测</title>
+    <meta charset="UTF-8">
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.12/cropper.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.12/cropper.min.js"></script>
+</head>
+<body>
+<div style="max-width: 1200px; margin: 50px auto; padding: 20px;">
+    <!-- 模式选择 -->
+    <div style="margin-bottom: 20px;">
+        <label>
+            <input type="radio" name="mode" value="original" checked onclick="toggleMode()"> 原始图片预测
+        </label>
+        <label style="margin-left: 20px;">
+            <input type="radio" name="mode" value="crop" onclick="toggleMode()"> 裁剪区域预测
+        </label>
+    </div>
+
+    <!-- 主内容区 -->
+    <div style="display: flex; gap: 50px;">
+        <!-- 左侧操作区 -->
+        <div style="flex: 1;">
+            <div class="file-upload">
+                <input type="file" id="fileInput" accept="image/*">
+                <label for="fileInput">选择图片</label>
+            </div>
+            
+            <!-- 图片容器 -->
+            <div id="imageContainer" style="margin-top: 20px; border: 2px dashed #ddd; min-height: 400px;">
+                <img id="previewImage" style="max-width: 100%; display: none;">
+            </div>
+
+            <!-- 裁剪控制 -->
+            <div id="cropControls" style="margin-top: 15px; display: none;">
+                <button onclick="confirmCrop()" class="btn">确认裁剪</button>
+                <button onclick="resetCrop()" class="btn secondary">重置</button>
+            </div>
+        </div>
+
+        <!-- 右侧结果区 -->
+        <div style="flex: 0 0 300px;">
+            <button id="predictBtn" class="btn primary" onclick="predict()" disabled>开始预测</button>
+            <div id="resultBox" class="result-box">
+                <div class="result-header">预测结果</div>
+                <pre id="resultContent"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let cropper = null;
+let currentMode = 'original';
+let originalImage = null;
+let croppedImage = null;
+
+// 模式切换
+function toggleMode() {
+    currentMode = document.querySelector('input[name="mode"]:checked').value;
+    resetUI();
+    if(currentMode === 'crop' && originalImage) initCropper();
+}
+
+// 初始化裁剪器
+function initCropper() {
+    if(cropper) cropper.destroy();
+    
+    cropper = new Cropper(previewImage, {
+        aspectRatio: 1,
+        viewMode: 1,
+        autoCropArea: 0.8,
+        guides: true
+    });
+    
+    document.getElementById('cropControls').style.display = 'block';
+}
+
+// 确认裁剪
+function confirmCrop() {
+    const canvas = cropper.getCroppedCanvas({
+        width: 224,
+        height: 224,
+        imageSmoothingQuality: 'high'
+    });
+    
+    canvas.toBlob(blob => {
+        croppedImage = blob;
+        previewImage.src = URL.createObjectURL(blob);
+        togglePredictBtn(true);
+    }, 'image/jpeg', 0.9);
+}
+
+// 文件选择处理
+document.getElementById('fileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        previewImage.style.display = 'block';
+        previewImage.src = event.target.result;
+        originalImage = file;
+        
+        if(currentMode === 'crop') {
+            initCropper();
+        } else {
+            togglePredictBtn(true);
+        }
+    };
+    reader.readAsDataURL(file);
+});
+
+// 预测功能
+function predict() {
+    const formData = new FormData();
+    const file = currentMode === 'original' ? originalImage : croppedImage;
+    
+    formData.append('file', file, 'image.jpg');
+    
+    toggleLoading(true);
+    
+    $.ajax({
+        url: '/predict',
+        method: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: (res) => {
+            displayResult(res.result);
+        },
+        error: () => {
+            displayResult(['预测请求失败']);
+        },
+        complete: () => {
+            toggleLoading(false);
+        }
+    });
+}
+
+// UI控制函数
+function resetUI() {
+    previewImage.style.display = 'none';
+    document.getElementById('cropControls').style.display = 'none';
+    croppedImage = null;
+    togglePredictBtn(false);
+}
+
+function togglePredictBtn(enabled) {
+    document.getElementById('predictBtn').disabled = !enabled;
+}
+
+function toggleLoading(loading) {
+    predictBtn.innerHTML = loading ? '<div class="loader"></div> 预测中...' : '开始预测';
+}
+
+function displayResult(results) {
+    const resultContent = document.getElementById('resultContent');
+    resultContent.innerHTML = results.map(item => 
+        `<div class="result-item">${item}</div>`
+    ).join('');
+}
+
+function resetCrop() {
+    if(cropper) {
+        cropper.reset();
+        previewImage.src = URL.createObjectURL(originalImage);
+        croppedImage = null;
+        togglePredictBtn(false);
+    }
+}
+</script>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+}
+
+.file-upload input {
+    display: none;
+}
+
+.file-upload label {
+    display: inline-block;
+    padding: 12px 25px;
+    background: #2196F3;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.file-upload label:hover {
+    background: #1976D2;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.btn.primary {
+    background: #4CAF50;
+    color: white;
+}
+
+.btn.secondary {
+    background: #607D8B;
+    color: white;
+}
+
+.btn:disabled {
+    background: #BDBDBD;
+    cursor: not-allowed;
+}
+
+.result-box {
+    margin-top: 20px;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.result-header {
+    padding: 15px;
+    background: #2196F3;
+    color: white;
+    border-radius: 6px 6px 0 0;
+    font-weight: bold;
+}
+
+#resultContent {
+    padding: 15px;
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.result-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.loader {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+</body>
+</html>
