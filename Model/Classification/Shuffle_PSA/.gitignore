@@ -1,0 +1,12 @@
+# Training outputs / checkpoints
+Our/
+log_file/
+Predict/*.csv
+*.pth
+
+# Local caches / logs
+__pycache__/
+models/__pycache__/
+*.pyc
+*.log
+resolution_eval.log
