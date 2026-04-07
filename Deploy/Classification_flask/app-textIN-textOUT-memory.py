@@ -80,7 +80,7 @@ if TEST_FIRE_PULSE:
 
 # 配置路径
 # weights_path = "/home/mayi/wd/Classification/Shuffle_PSA/Our/ShuffleNet/CELS/lr_0.008/best.pth"
-weights_path = "./models/Classification_yayanhuo_0622.pth"
+weights_path = os.getenv("CLASSIFIER_WEIGHTS_PATH", "./models/Classification_abnormal_neutral.pth")
 class_json_path = "./class_indices.json"
 assert os.path.exists(weights_path), "weights path does not exist..."
 assert os.path.exists(class_json_path), "class json path does not exist..."
@@ -93,7 +93,7 @@ print(f"Using device: {device}")
 model = ShuffleNetV2_PSA(
     stages_repeats=[4, 8, 1],
     stages_out_channels=[24, 116, 232, 464, 128],
-    num_classes=3
+    num_classes=2
 ).to(device)
 model.load_state_dict(torch.load(weights_path, map_location=device), strict=False)
 model.eval()
@@ -101,6 +101,8 @@ model.eval()
 # 类别标签
 with open(class_json_path, 'r') as f:
     class_indict = json.load(f)
+label_to_idx = {label: int(idx) for idx, label in class_indict.items()}
+abnormal_idx = label_to_idx.get("异常", 0)
 
 # 优化后的预处理流程
 def fast_preprocess(cv_image):
@@ -372,21 +374,17 @@ def predict(pic_base64, prediction_type, sid, video_recorder, monitorType):
             'prediction_type': prediction_type
         }, room=sid)
 
-        #  "0": "火焰", "1": "中性",、"2": "烟雾"
-        fireProbability = prediction[0]
-        smokeProbability = prediction[2]
-        # 判断是否检测到火焰/烟雾
-        has_flame = fireProbability >= classifyThreshold or smokeProbability >= classifyThreshold
+        abnormal_probability = float(prediction[abnormal_idx])
+        has_abnormal = abnormal_probability >= classifyThreshold
 
-        # 检测到火/烟雾，发出软触发
-        if has_flame:
+        if has_abnormal:
             trigger_fire_pulse()
 
-        # 录制视频：检测到火焰时开始/继续录制
+        # 录制视频：检测到异常时开始/继续录制
         if prediction_type == 'original' and monitorType in  ('remote_camera', 'local_camera'):
-            gevent.spawn(video_recorder.add_frame, sid, pic_base64, has_flame)
+            gevent.spawn(video_recorder.add_frame, sid, pic_base64, has_abnormal)
         
-        if has_flame:
+        if has_abnormal:
             gevent.spawn(detect, pic_base64, prediction_type, sid)
         else: 
             width, height = image.size

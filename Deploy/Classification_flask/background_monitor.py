@@ -35,7 +35,10 @@ PROJECT_DIR = os.path.dirname(BASE_DIR)
 DB_PATH = "/home/njust/Fire/Deploy/monitor.db"
 ALERT_IMAGE_DIR = os.path.join(PROJECT_DIR, "captures", "alerts")
 CLASS_JSON = os.path.join(BASE_DIR, "class_indices.json")
-WEIGHTS_PATH = os.path.join(BASE_DIR, "models", "Classification_yayanhuo_0622.pth")
+WEIGHTS_PATH = os.getenv(
+    "CLASSIFIER_WEIGHTS_PATH",
+    os.path.join(BASE_DIR, "models", "Classification_abnormal_neutral.pth"),
+)
 
 CAMERA_ID = "hk_camera_01"
 CLASS_THRESHOLD = 0.6
@@ -101,7 +104,7 @@ def load_model(device):
     model = ShuffleNetV2_PSA(
         stages_repeats=[4, 8, 1],
         stages_out_channels=[24, 116, 232, 464, 128],
-        num_classes=3,
+        num_classes=2,
     ).to(device)
     state = torch.load(WEIGHTS_PATH, map_location=device)
     model.load_state_dict(state, strict=False)
@@ -164,8 +167,7 @@ def capture_worker(camera, frame_queue, stop_event):
 
 def inference_worker(frame_queue, stop_event, device, model, preprocess, idx2label, label2idx):
     conn = sqlite3.connect(DB_PATH)
-    fire_idx = label2idx.get("火焰")
-    smoke_idx = label2idx.get("烟雾")
+    abnormal_idx = label2idx.get("异常")
     count = 0
     start = time.perf_counter()
 
@@ -186,17 +188,13 @@ def inference_worker(frame_queue, stop_event, device, model, preprocess, idx2lab
         t1 = time.perf_counter()
 
         count += 1
-        fire_prob = outputs[fire_idx] if fire_idx is not None else 0.0
-        smoke_prob = outputs[smoke_idx] if smoke_idx is not None else 0.0
+        abnormal_prob = outputs[abnormal_idx] if abnormal_idx is not None else 0.0
 
         alert_label = None
         alert_prob = 0.0
-        if fire_prob >= CLASS_THRESHOLD:
-            alert_label = "火焰"
-            alert_prob = fire_prob
-        elif smoke_prob >= CLASS_THRESHOLD:
-            alert_label = "烟雾"
-            alert_prob = smoke_prob
+        if abnormal_prob >= CLASS_THRESHOLD:
+            alert_label = "异常"
+            alert_prob = abnormal_prob
 
         if alert_label:
             image_path = save_alert_image(frame)

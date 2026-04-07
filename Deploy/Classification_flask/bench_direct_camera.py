@@ -1,6 +1,7 @@
 import sys
 sys.path.insert(0, "/home/njust/Fire/Deploy/CameraFeed_flask")
 
+import os
 import time
 import torch
 import cv2
@@ -28,9 +29,10 @@ def load_model(device):
     model = ShuffleNetV2_PSA(
         stages_repeats=[4,8,1],
         stages_out_channels=[24,116,232,464,128],
-        num_classes=3
+        num_classes=2
     ).to(device)
-    model.load_state_dict(torch.load("./models/Classification_yayanhuo_0622.pth",
+    weights_path = os.getenv("CLASSIFIER_WEIGHTS_PATH", "./models/Classification_abnormal_neutral.pth")
+    model.load_state_dict(torch.load(weights_path,
                                      map_location=device), strict=False)
     model.eval()
     return model
