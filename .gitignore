@@ -128,3 +128,4 @@ Deploy/flame-detection/src/assets/*.avi
 Deploy/flame-detection/src/assets/*.mp4
 Deploy/flame-detection/backend/demo/*.pt
 Model/ObjectDetection/Improved_DFFT/apex/
+Model/Classification/Shuffle_PSA/Predict/
