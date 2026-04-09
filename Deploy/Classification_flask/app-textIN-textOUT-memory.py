@@ -31,6 +31,7 @@ CAMERA_SERVICE_URL = os.getenv("CAMERA_SERVICE_URL", "http://localhost:5002")
 CAMERA_BASE64_ENDPOINT = f"{CAMERA_SERVICE_URL}/camera/base64"
 CAMERA_FIRE_PULSE_ENDPOINT = f"{CAMERA_SERVICE_URL}/camera/fire_pulse"
 CAMERA_START_ENDPOINT = f"{CAMERA_SERVICE_URL}/camera/start"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 
@@ -38,10 +39,8 @@ app = Flask(__name__)
 CORS(app)
 
 # 可选：是否在分类服务进程里自动占用相机
-AUTO_INIT_CAMERA = os.getenv("AUTO_INIT_CAMERA", "false").lower() == "true"
-# TEST_FIRE_PULSE = os.getenv("TEST_FIRE_PULSE", "false").lower() == "true"  # 启动时调试脉冲
-AUTO_INIT_CAMERA = True
-TEST_FIRE_PULSE = False
+AUTO_INIT_CAMERA = os.getenv("AUTO_INIT_CAMERA", "true").lower() == "true"
+TEST_FIRE_PULSE = os.getenv("TEST_FIRE_PULSE", "false").lower() == "true"
 
 # 启动websocket
 sio = SocketIO(app, cors_allowed_origins='*', async_mode='gevent')
@@ -80,8 +79,8 @@ if TEST_FIRE_PULSE:
 
 # 配置路径
 # weights_path = "/home/mayi/wd/Classification/Shuffle_PSA/Our/ShuffleNet/CELS/lr_0.008/best.pth"
-weights_path = os.getenv("CLASSIFIER_WEIGHTS_PATH", "./models/Classification_abnormal_neutral.pth")
-class_json_path = "./class_indices.json"
+weights_path = os.getenv("CLASSIFIER_WEIGHTS_PATH", os.path.join(CURRENT_DIR, "models", "cls_env_A02.pth"))
+class_json_path = os.getenv("CLASSIFIER_CLASS_JSON_PATH", os.path.join(CURRENT_DIR, "class_indices.json"))
 assert os.path.exists(weights_path), "weights path does not exist..."
 assert os.path.exists(class_json_path), "class json path does not exist..."
 

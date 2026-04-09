@@ -3,7 +3,17 @@
 # 加载conda
 source /home/njust/Conda/etc/profile.d/conda.sh
 
+# 统一读取部署配置
+DEPLOY_ENV_FILE="/home/njust/Fire/Deploy/deploy.env"
+if [ -f "$DEPLOY_ENV_FILE" ]; then
+    set -a
+    . "$DEPLOY_ENV_FILE"
+    set +a
+fi
+
 echo "🚀 一键启动所有服务..."
+echo ""
+echo "🧩 当前部署环境: ${DEPLOY_ENV_NAME:-default}"
 echo ""
 
 # 函数：检查端口是否被占用

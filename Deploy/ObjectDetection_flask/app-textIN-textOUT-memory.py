@@ -24,9 +24,14 @@ import numpy as np
 app = Flask(__name__)
 
 # 加载配置文件
-config_file = '../ObjectDetection/Improved_DFFT/our_coco_time/dfft_time.py'  # Update this path
-# checkpoint_file = '/home/mayi/wd/zzl/ObjectDetection/Improved_DFFT/our_coco_time/resume/resume/epoch_52.pth' 
-checkpoint_file = './models/OD_yayanhuo_0622.pth' 
+config_file = os.getenv(
+    "DETECTOR_CONFIG_PATH",
+    osp.join(project_root, 'ObjectDetection', 'Improved_DFFT', 'our_coco_time', 'dfft_time.py')
+)
+checkpoint_file = os.getenv(
+    "DETECTOR_WEIGHTS_PATH",
+    osp.join(current_dir, 'models', 'obj_env_A.pth')
+)
 img_cache = '../cache/' 
 model = init_detector(config_file, checkpoint_file, device='cuda:0')
 
@@ -151,6 +156,5 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=7865)
-
 
 

@@ -45,7 +45,8 @@ def move_optimizer_state_to_device(optimizer, device):
 
 
 def save_resume_checkpoint(checkpoint_path, net, optimizer, scheduler, epoch, best_acc,
-                           best_epoch, best_report, history, args):
+                           best_epoch, best_report, best_fp_rate_total,
+                           best_fp_rate_neutral, history, args):
     checkpoint = {
         "epoch": epoch,
         "model_state": net.state_dict(),
@@ -54,6 +55,8 @@ def save_resume_checkpoint(checkpoint_path, net, optimizer, scheduler, epoch, be
         "best_acc": best_acc,
         "best_epoch": best_epoch,
         "best_report": best_report,
+        "best_fp_rate_total": best_fp_rate_total,
+        "best_fp_rate_neutral": best_fp_rate_neutral,
         "history": history,
         "args": vars(args),
     }
@@ -139,7 +142,22 @@ def eval_model(net, validate_loader, device, loss_function, val_num, class_names
 
         report = classification_report(labels_value, predicted_value, target_names=class_names, digits=5)
 
-        return val_loss, val_accurate, precision, recall, f1, report
+        abnormal_idx = class_names.index("abnormal") if "abnormal" in class_names else 0
+        neutral_idx = class_names.index("neutral") if "neutral" in class_names else None
+
+        false_positive_count = 0
+        neutral_count = 0
+        if neutral_idx is not None:
+            for true_label, pred_label in zip(labels_value, predicted_value):
+                if true_label == neutral_idx:
+                    neutral_count += 1
+                    if pred_label == abnormal_idx:
+                        false_positive_count += 1
+
+        fp_rate_total = false_positive_count / len(labels_value) if labels_value else 0.0
+        fp_rate_neutral = false_positive_count / neutral_count if neutral_count else 0.0
+
+        return val_loss, val_accurate, precision, recall, f1, report, fp_rate_total, fp_rate_neutral
 
 
 def main(args):
@@ -220,6 +238,8 @@ def main(args):
     best_acc = 0.0
     best_epoch = 0
     best_report = ""
+    best_fp_rate_total = float("inf")
+    best_fp_rate_neutral = float("inf")
     plt_train_loss = []
     plt_train_ac = []
     plt_vaild_loss = []
@@ -233,6 +253,8 @@ def main(args):
         best_acc = checkpoint.get("best_acc", 0.0)
         best_epoch = checkpoint.get("best_epoch", 0)
         best_report = checkpoint.get("best_report", "")
+        best_fp_rate_total = checkpoint.get("best_fp_rate_total", float("inf"))
+        best_fp_rate_neutral = checkpoint.get("best_fp_rate_neutral", float("inf"))
         history = checkpoint.get("history", {})
         plt_train_loss = history.get("train_loss", [])
         plt_train_ac = history.get("train_acc", [])
@@ -251,28 +273,62 @@ def main(args):
     file_mode = 'a' if start_epoch > 0 and os.path.exists(metric_file_path) else 'w'
     with open(metric_file_path, file_mode) as file:
         if file_mode == 'w':
-            file.write(f"lr:{args.lr}\nTime\tEpoch\tTrain_Loss\tTrain_Acc\tVal_Loss\tVal_Acc\tVal_Pre\tVal_Rec\tVal_F1\n")
+            file.write(
+                f"lr:{args.lr}\n"
+                "Time\tEpoch\tTrain_Loss\tTrain_Acc\tVal_Loss\tVal_Acc\tVal_Pre\tVal_Rec\tVal_F1\t"
+                "Val_FP_Total\tVal_FP_Neutral\n"
+            )
 
         for epoch in range(start_epoch, epochs):
             train_loss, train_acc = train_model(net, train_loader, device, loss_function, train_num, optimizer)
             scheduler.step()
 
-            val_loss, val_acc, val_pre, val_rec, val_f1, val_report = eval_model(net, validate_loader, device,
-                                                                                  loss_function, val_num,
-                                                                                  args.class_names)
-            print('train epoch[{}/{}]\tloss:{:.5f}\ttrain_acc: {:.5f}\tval_acc:{:.5f}'.format(epoch + 1, epochs,
-                                                                                               train_loss, train_acc,
-                                                                                               val_acc))
+            val_loss, val_acc, val_pre, val_rec, val_f1, val_report, val_fp_total, val_fp_neutral = eval_model(
+                net,
+                validate_loader,
+                device,
+                loss_function,
+                val_num,
+                args.class_names,
+            )
+            print(
+                'train epoch[{}/{}]\tloss:{:.5f}\ttrain_acc:{:.5f}\tval_acc:{:.5f}\t'
+                'val_fp_total:{:.5f}\tval_fp_neutral:{:.5f}'.format(
+                    epoch + 1,
+                    epochs,
+                    train_loss,
+                    train_acc,
+                    val_acc,
+                    val_fp_total,
+                    val_fp_neutral,
+                )
+            )
 
-            if val_acc >= best_acc:
+            is_better_model = (
+                val_fp_neutral < best_fp_rate_neutral or
+                (
+                    math.isclose(val_fp_neutral, best_fp_rate_neutral, rel_tol=0.0, abs_tol=1e-12) and
+                    (
+                        val_fp_total < best_fp_rate_total or
+                        (
+                            math.isclose(val_fp_total, best_fp_rate_total, rel_tol=0.0, abs_tol=1e-12) and
+                            val_acc >= best_acc
+                        )
+                    )
+                )
+            )
+
+            if is_better_model:
                 best_acc = val_acc
                 best_report = val_report
                 best_epoch = epoch + 1
+                best_fp_rate_total = val_fp_total
+                best_fp_rate_neutral = val_fp_neutral
                 torch.save(net.state_dict(), save_path + '/best.pth')
 
             time1 = "%s" % datetime.now()
             file.write(f"{time1}\t{epoch + 1}\t{train_loss:.5f}\t{train_acc:.5f}\t{val_loss:.5f}\t{val_acc:.5f}"
-                       f"\t{val_pre:.5f}\t{val_rec:.5f}\t{val_f1:.5f}\n")
+                       f"\t{val_pre:.5f}\t{val_rec:.5f}\t{val_f1:.5f}\t{val_fp_total:.5f}\t{val_fp_neutral:.5f}\n")
             file.flush()
 
             plt_train_ac.append(train_acc)
@@ -295,11 +351,13 @@ def main(args):
                 best_acc,
                 best_epoch,
                 best_report,
+                best_fp_rate_total,
+                best_fp_rate_neutral,
                 history,
                 args,
             )
 
-            if val_acc >= best_acc:
+            if is_better_model:
                 save_resume_checkpoint(
                     best_checkpoint_path,
                     net,
@@ -309,6 +367,8 @@ def main(args):
                     best_acc,
                     best_epoch,
                     best_report,
+                    best_fp_rate_total,
+                    best_fp_rate_neutral,
                     history,
                     args,
                 )
@@ -323,9 +383,15 @@ def main(args):
 
     print('Best epoch: {}'.format(best_epoch))
     print('Best val_acc: {:.5f}'.format(best_acc))
+    print('Best val_fp_total: {:.5f}'.format(best_fp_rate_total))
+    print('Best val_fp_neutral: {:.5f}'.format(best_fp_rate_neutral))
     print('Best report: {}'.format(best_report))
     with open(metric_file_path, 'a') as file:
-        file.write(f"Best epoch: {best_epoch}\tBest val_acc: {best_acc:.5f}\nBest report: {best_report}\n")
+        file.write(
+            f"Best epoch: {best_epoch}\tBest val_acc: {best_acc:.5f}\t"
+            f"Best val_fp_total: {best_fp_rate_total:.5f}\tBest val_fp_neutral: {best_fp_rate_neutral:.5f}\n"
+            f"Best report: {best_report}\n"
+        )
     print('Finished Training!')
 
 
@@ -335,8 +401,8 @@ if __name__ == '__main__':
     # 类别数量
     parser.add_argument('--num_classes', type=int, default=2)
     # 设置训练回合为4000（数据集训练4000次）
-    parser.add_argument('--epochs', type=int, default=500)
-    parser.add_argument('--batch_size', type=int, default=80)
+    parser.add_argument('--epochs', type=int, default=400)
+    parser.add_argument('--batch_size', type=int, default=120)
     parser.add_argument('--workers', type=int, default=16)
 
 
@@ -354,6 +420,6 @@ if __name__ == '__main__':
                         help='path to a full training checkpoint for true resume')
     # parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
     # 权重和训练记录所保存的目录，可以自定义路径
-    parser.add_argument('--save_path', type=str, default="./Our/Binary/Train_01/")
+    parser.add_argument('--save_path', type=str, default="./Our/Binary/Case1/Train_02/")
     opt = parser.parse_args()
     main(opt)
