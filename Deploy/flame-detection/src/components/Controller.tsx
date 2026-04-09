@@ -8,6 +8,7 @@ import axios from "axios";
 
 export default function Controller({
     isDetecting, setIsDetecting,
+    onStopDetection,
     isRoiMode, setIsRoiMode,
     videoDomRef,
     isSocketConnected,
@@ -20,6 +21,7 @@ export default function Controller({
 }: {
     isDetecting: boolean,
     setIsDetecting: (isDetecting: boolean) => void,
+    onStopDetection: () => void,
     videoDomRef: RefObject<HTMLVideoElement | null>,
     isRoiMode: boolean,
     setIsRoiMode: (isRoiMode: boolean) => void,
@@ -32,6 +34,10 @@ export default function Controller({
     const [settingsOpen, setSettingsOpen] = useState(false); // 右侧setting抽屉
 
     const handleDetectClick = () => {
+        if (isDetecting) {
+            onStopDetection();
+        }
+
         if (monitorType !== 'remote_camera' && videoDomRef.current && !isDetecting) {
             videoDomRef.current.play();
         }

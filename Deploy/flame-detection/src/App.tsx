@@ -364,6 +364,11 @@ export default function App() {
         <Controller
           isDetecting={isDetecting}
           setIsDetecting={setIsDetecting}
+          onStopDetection={() => {
+            if (socket && isSocketConnected) {
+              socket.emit('stop_detection');
+            }
+          }}
           videoDomRef={videoDomRef}
           isRoiMode={isRoiMode}
           setIsRoiMode={setIsRoiMode}
